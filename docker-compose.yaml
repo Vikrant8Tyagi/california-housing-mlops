@@ -8,6 +8,10 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      retries: 5
     volumes:
       - airflow_pgdata:/var/lib/postgresql/data
 
@@ -28,11 +32,15 @@ services:
     networks:
       - mlops-network
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__WEBSERVER__SECRET_KEY: california_housing_secret_key_123
+      # 🔥 CRITICAL: This allows Jenkins to use admin:admin to trigger DAGs
+      AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
@@ -40,6 +48,11 @@ services:
     ports:
       - "8081:8080"
     command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   airflow-scheduler:
     image: airflow-custom:2.7.0
@@ -47,7 +60,8 @@ services:
     networks:
       - mlops-network
     depends_on:
-      - airflow-webserver
+      airflow-webserver:
+        condition: service_healthy
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
     volumes:
