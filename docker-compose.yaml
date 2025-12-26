@@ -1,109 +1,90 @@
 services:
-  # 1. Database for Airflow
   postgres:
     image: postgres:13
     container_name: airflow-postgres
+    networks:
+      - mlops-network
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow"]
-      interval: 5s
-      retries: 5
     volumes:
       - airflow_pgdata:/var/lib/postgresql/data
-    restart: always
 
-  # 2. MLflow Tracking
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.7.1
     container_name: mlflow
-    command: mlflow server --host 0.0.0.0 --port 5000
+    networks:
+      - mlops-network
     ports:
       - "5000:5000"
     volumes:
       - ./mlruns:/mlruns
-    restart: always
 
-  # 3. Airflow Webserver
   airflow-webserver:
     build: ./airflow
     image: airflow-custom:2.7.0
     container_name: airflow-webserver
+    networks:
+      - mlops-network
     depends_on:
-      postgres:
-        condition: service_healthy
-      mlflow:
-        condition: service_started
+      - postgres
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__WEBSERVER__SECRET_KEY: california_housing_secret_key_123
-      AIRFLOW__CORE__FERNET_KEY: ESUjZRGSBmWu2YLPcLX1Tb_ebXDwckmxdhnQpwmHDx0=
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      MLFLOW_TRACKING_URI: http://mlflow:5000
-      AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
-      - ./mlruns:/mlruns
+      - ./models:/opt/airflow/models
     ports:
       - "8081:8080"
     command: webserver
-    restart: always
 
-  # 4. Airflow Scheduler
   airflow-scheduler:
     image: airflow-custom:2.7.0
     container_name: airflow-scheduler
+    networks:
+      - mlops-network
     depends_on:
-      airflow-webserver:
-        condition: service_started
+      - airflow-webserver
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./data:/opt/airflow/data
-      - ./mlruns:/mlruns
+      - ./models:/opt/airflow/models
     command: scheduler
-    restart: always
 
-  # 5. Inference API
   api:
-    image: airflow-custom:2.7.0
+    build: ./api
     container_name: inference-api
-    entrypoint: [] 
-    depends_on:
-      mlflow:
-        condition: service_started
+    networks:
+      - mlops-network
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./api:/app
-      - ./mlruns:/mlruns
+      - ./models:/app/models
     ports:
       - "8000:8000"
-    working_dir: /app
-    command: python -m uvicorn main:app --host 0.0.0.0 --port 8000
-    restart: always
 
-  # 6. Jenkins Automation
   jenkins:
     image: jenkins/jenkins:lts
     container_name: jenkins
-    privileged: true
+    networks:
+      - mlops-network
     user: root
+    privileged: true
     ports:
       - "8082:8080"
-      - "50000:50000"
     volumes:
       - ./jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
-      - .:/app 
-    restart: always
+      - .:/app
+
+networks:
+  mlops-network:
+    driver: bridge
 
 volumes:
   airflow_pgdata:
