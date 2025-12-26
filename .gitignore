@@ -1,0 +1,12 @@
+# Jenkins runtime (NEVER commit)
+jenkins_home/
+
+# MLflow artifacts
+mlruns/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
