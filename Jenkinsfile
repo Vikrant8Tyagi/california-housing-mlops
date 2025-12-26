@@ -40,7 +40,7 @@ pipeline {
         stage('Health Check') {
             steps {
                 echo 'Verifying API status...'
-                sh "curl http://api:8000/health"
+                sh "curl http://localhost:8000/health"
             }
         }
     }
