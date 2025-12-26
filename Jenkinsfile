@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     stages {
-
         stage('Initialize') {
             steps {
                 echo '🚀 Starting California Housing MLOps Pipeline...'
@@ -12,35 +11,28 @@ pipeline {
         stage('Trigger Training') {
             steps {
                 echo '📡 Triggering Airflow DAG via API...'
-                sh '''
+                // Using double quotes to allow potential Jenkins variable expansion
+                sh """
                 curl -X POST "http://airflow-webserver:8080/api/v1/dags/california_housing_dag/dagRuns" \
                   -H "Content-Type: application/json" \
                   --user "admin:admin" \
                   -d '{}'
-                '''
+                """
             }
         }
 
         stage('API Health Check (Wait for Model)') {
             steps {
                 echo '🔍 Waiting for API to load the trained model...'
-                sh '''
-                for i in {1..30}; do
-                  RESPONSE=$(curl -s http://api:8000/health)
-                  echo "Health response: $RESPONSE"
-
-                  if echo "$RESPONSE" | grep -q '"status":"ok"'; then
-                    echo "✅ API is READY and model is loaded"
-                    exit 0
-                  fi
-
-                  echo "⏳ Model not ready yet, retrying in 10s..."
-                  sleep 10
-                done
-
-                echo "❌ Model was not loaded within expected time"
-                exit 1
-                '''
+                timeout(time: 10, unit: 'MINUTES') {
+                    script {
+                        waitUntil {
+                            def response = sh(script: "curl -s http://api:8000/health", returnStdout: true).trim()
+                            echo "Health response: ${response}"
+                            return response.contains('"status":"ok"')
+                        }
+                    }
+                }
             }
         }
 
