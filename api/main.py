@@ -44,11 +44,12 @@ def startup_event():
 
 @app.get("/health")
 def health():
-    """Jenkins calls this. We try to load the model here if it's missing."""
+    """Jenkins calls this to check if the model is ready."""
     load_model_if_needed()
     if sess is None:
         return {"status": "degraded", "reason": "model not loaded"}
-    return {"status": "ok"} # Jenkins looks for "ok"
+    # Match the 'ok' string Jenkins is looking for
+    return {"status": "ok"} 
 
 class HousingData(BaseModel):
     MedInc: float

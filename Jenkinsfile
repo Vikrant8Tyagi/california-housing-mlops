@@ -1,8 +1,10 @@
 pipeline {
     agent any
     environment {
+        // INTERNAL Docker network URL for Airflow
         AIRFLOW_API = "http://airflow-webserver:8080/api/v1"
-        API_URL = "http://api:8000"
+        // INTERNAL Docker network URL for the FastAPI service (matches container_name)
+        API_URL = "http://inference-api:8000"
     }
     stages {
         stage('Initialize') {
@@ -21,12 +23,15 @@ pipeline {
                 echo '🔍 Waiting for API to load the trained model...'
                 sh '''
                 for i in {1..30}; do
+                  # Using the environment variable defined above
                   RESPONSE=$(curl -s ${API_URL}/health)
                   echo "Health response: $RESPONSE"
+                  
                   if echo "$RESPONSE" | grep -q '"status":"ok"'; then
                     echo "✅ API is READY"
                     exit 0
                   fi
+                  
                   echo "⏳ Model not ready yet (Attempt $i/30), retrying in 10s..."
                   sleep 10
                 done
