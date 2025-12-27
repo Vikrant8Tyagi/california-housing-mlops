@@ -1,59 +1,73 @@
 pipeline {
     agent any
+
     environment {
-        // INTERNAL Docker network URL for Airflow
-        AIRFLOW_API = "http://airflow-webserver:8080/api/v1"
-        // INTERNAL Docker network URL for the FastAPI service (matches container_name)
-        API_URL = "http://inference-api:8000"
+        AIRFLOW_API  = "http://airflow-webserver:8080/api/v1"
+        AIRFLOW_USER = "admin"
+        AIRFLOW_PASS = "admin"
+        DAG_ID       = "california_housing_dag"
     }
+
     stages {
-        stage('Initialize') {
+
+        stage('Checkout') {
             steps {
-                echo '🚀 Starting California Housing MLOps Pipeline...'
+                checkout scm
             }
         }
-        stage('Trigger Training') {
+
+        stage('Trigger Airflow Training') {
             steps {
-                echo '📡 Triggering Airflow DAG...'
-                sh "curl -X POST ${AIRFLOW_API}/dags/california_housing_dag/dagRuns -H 'Content-Type: application/json' --user admin:admin -d '{}'"
+                echo '📡 Triggering Airflow DAG via REST API'
+                sh """
+                curl -f -X POST "${AIRFLOW_API}/dags/${DAG_ID}/dagRuns" \
+                  -H "Content-Type: application/json" \
+                  --user "${AIRFLOW_USER}:${AIRFLOW_PASS}" \
+                  -d '{}'
+                """
             }
         }
-        stage('API Health Check (Wait for Model)') {
+
+        stage('Wait for Training') {
             steps {
-                echo '🔍 Waiting for API to load the trained model...'
-                sh '''
-                for i in {1..30}; do
-                  # Using the environment variable defined above
-                  RESPONSE=$(curl -s ${API_URL}/health)
-                  echo "Health response: $RESPONSE"
-                  
-                  if echo "$RESPONSE" | grep -q '"status":"ok"'; then
-                    echo "✅ API is READY"
-                    exit 0
-                  fi
-                  
-                  echo "⏳ Model not ready yet (Attempt $i/30), retrying in 10s..."
-                  sleep 10
-                done
-                echo "❌ Model load timeout"
-                exit 1
-                '''
+                echo '⏳ Waiting for model training to complete'
+                sleep 45
             }
         }
+
+        stage('Verify MLflow') {
+            steps {
+                echo '🔍 Verifying MLflow service'
+                sh 'curl -f http://localhost:5000'
+            }
+        }
+
+        stage('Start Prediction API') {
+            steps {
+                echo '🚀 Starting prediction API'
+                sh 'docker compose up -d prediction-api'
+                sleep 10
+            }
+        }
+
         stage('Functional Test') {
             steps {
-                echo '🧪 Running Prediction Test...'
-                sh '''
-                curl -X POST ${API_URL}/predict \
-                -H "Content-Type: application/json" \
-                -d '{"MedInc": 8.3, "HouseAge": 41.0, "AveRooms": 6.9, "AveBedrms": 1.0, "Population": 322.0, "AveOccup": 2.5, "Latitude": 37.8, "Longitude": -122.2}'
-                '''
+                echo '🧪 Running prediction test'
+                sh """
+                curl -f -X POST http://localhost:8000/predict \
+                  -H "Content-Type: application/json" \
+                  -d '[8.32, 41.0, 6.98, 1.02, 322.0, 2.55, 37.88, -122.23]'
+                """
             }
         }
     }
+
     post {
+        success {
+            echo '✅ PIPELINE COMPLETED SUCCESSFULLY'
+        }
         failure {
-            echo '⚠️ Pipeline FAILED: Check Airflow DAG or API logs.'
+            echo '❌ PIPELINE FAILED – check logs'
         }
     }
 }
